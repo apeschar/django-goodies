@@ -2,31 +2,5 @@
 README
 ======
 
-menutag
--------
+Documentation is split over several ``README.*`` files.
 
-This provides a ``{% menu %}`` template tag.
-
-**Dependencies**
-
-``import lxml``
-
-**Usage**
-
-::
-
-  {% menu active="contact" active_class="active" %}
-    <a href="" link="home">Homepage</a>
-    <a href="" link="about_us">About us</a>
-    <a href="" link="contact">Contact</a>
-  {% endmenu %}
-
-The ``link`` attributes will be removed and the Contact link will be given the
-``active`` class.
-
-Available options are::
-
-  active            Specify the active link.
-  active_class      Give the active link this class.
-  active_id         Give the active link this id.
-  link_class        Give all link this class.
