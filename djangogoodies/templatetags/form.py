@@ -7,16 +7,20 @@ from lxml import etree
 register = template.Library()
 
 class FormNode(template.Node):
-    find_fields = etree.XPath('//select[@name] | //input[@name]')
-    find_submit = etree.XPath('//input[type="submit"]')
+    parser = etree.XMLParser()
+    find_fields = etree.XPath('//select[@name] | //input[@name] | //textarea[@name]')
+    find_submit = etree.XPath('//input[@type="submit"]')
+    find_file_inputs = etree.XPath('//input[@type="file"]')
+    find_elements_to_fill = etree.XPath('//textarea | //select')
 
-    def __init__(self, nodelist, form, kwargs):
+    def __init__(self, nodelist, form, kwargs, flags):
         self.nodelist = nodelist
         self.form = form
         self.kwargs = kwargs
+        self.flags = flags
 
     def _parse_xml(self, xml):
-        root = etree.XML(u"<span>" + unicode(xml) + u"</span>")
+        root = etree.XML(u"<span>" + unicode(xml) + u"</span>", self.parser)
         if len(root) == 1:
             return root[0]
         else:
@@ -34,25 +38,32 @@ class FormNode(template.Node):
 
         method = self.kwargs.get('method', '').upper()
         if method not in ('GET', 'POST'): method = 'POST'
-        action = self.kwargs['action']
+        action = self.kwargs.get('action', '')
         error_class = self.kwargs.get('error_class')
         html = dict([(k[5:], v) for k, v in self.kwargs.items() if k[:5] == 'html.'])
+        strict = 'strict' in self.flags
 
         output = self.nodelist.render(context)
-        form = etree.XML("<form>%s</form>" % output)
+        form = etree.XML("<form>%s</form>" % output, self.parser)
         form.set('method', method)
         form.set('action', action)
-        form.set('enctype', 'multipart/form-data')
+
         for k, v in html.items(): form.set(k, v)
 
         fields = self.find_fields(form)
+        fields_used = []
         for elem in fields:
-            assert elem.tag in ('input', 'select'), 'invalid tag'
             name = elem.get('name')
             try:
                 field = [f for f in self.form if f.name == name][0]
             except IndexError:
-                continue
+                if strict:
+                    raise Exception('Unknown field: %s' % name)
+                else:
+                    continue
+            if strict and name in fields_used:
+                raise Exception('Field used twice: %s' % name)
+            fields_used.append(name)
             field_elem = self._parse_xml(unicode(field))
             for name, value in elem.attrib.items():
                 if name in ('name', 'value'): continue
@@ -61,6 +72,10 @@ class FormNode(template.Node):
             if error_class is not None and field.errors:
                 self._add_class(field_elem, error_class)
             elem.getparent().replace(elem, field_elem)
+        if strict:
+            for field in self.form:
+                if field.name not in fields_used:
+                    raise Exception('Field not used: %s' % field.name)
         
         if len(self.find_submit(form)) == 0:
             div = etree.Element('div')
@@ -69,6 +84,14 @@ class FormNode(template.Node):
             submit.set('type', 'submit')
             div.append(submit)
             form.append(div)
+        
+        if len(self.find_file_inputs(form)) > 0:
+            form.set('enctype', 'multipart/form-data')
+        form.set('enctype', 'multipart/form-data')
+
+        for node in self.find_elements_to_fill(form):
+            if len(node) == 0 and node.text is None:
+                node.text = ''
 
         return unicode(etree.tostring(form))
 
@@ -79,20 +102,22 @@ def do_form(parser, token):
         raise template.TemplateSyntaxError, "form tag expects at least one argument"
     form = parser.compile_filter(bits.pop(0))
     kwargs = {}
+    flags = []
     for i in bits:
-        try:
-            a, b = [x.strip() for x in i.split('=', 1)]
-        except ValueError:
-            raise template.TemplateSyntaxError, \
-                "argument syntax wrong: should be key=value"
+        if i == 'strict':
+            flags.append('strict')
         else:
-            if a not in ('method', 'action', 'error_class') and a[:5] != 'html.':
-                raise template.TemplateSyntaxError, "unknown argument: %s" % a
-            kwargs[a] = parser.compile_filter(b)
-    if not kwargs.has_key('action'):
-        raise template.TemplateSyntaxError, "required argument: action"
+            try:
+                a, b = [x.strip() for x in i.split('=', 1)]
+            except ValueError:
+                raise template.TemplateSyntaxError, \
+                    "argument syntax wrong: should be key=value"
+            else:
+                if a not in ('method', 'action', 'error_class') and a[:5] != 'html.':
+                    raise template.TemplateSyntaxError, "unknown argument: %s" % a
+                kwargs[a] = parser.compile_filter(b)
 
     nodelist = parser.parse(('endform',))
     parser.delete_first_token()
 
-    return FormNode(nodelist, form, kwargs)
+    return FormNode(nodelist, form, kwargs, flags)
