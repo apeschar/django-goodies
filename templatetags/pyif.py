@@ -3,15 +3,11 @@ from django.template import TemplateSyntaxError, VariableDoesNotExist
 from django.template import Library
 import re
 
-# For Python 2.3
-if not hasattr(__builtins__, 'set'):
-    from sets import Set as set
-
 register = Library()
 variable_re = re.compile(r'[\w._\|\"\']+')
 string_re = re.compile(r'^([\"\']).*\1$')
 
-TAGNAME = 'pyif' # Hopefully this can replace django's built-in if tag
+TAGNAME = 'pyif'
 
 class IfNode(Node):
     def __init__(self, expression, variables, nodelist_true, nodelist_false):
