@@ -42,6 +42,7 @@ class FormNode(template.Node):
         error_class = self.kwargs.get('error_class')
         html = dict([(k[5:], v) for k, v in self.kwargs.items() if k[:5] == 'html.'])
         strict = 'strict' in self.flags
+        messages = 'messages' in self.flags
 
         output = self.nodelist.render(context)
         form = etree.XML("<form>%s</form>" % output, self.parser)
@@ -71,7 +72,24 @@ class FormNode(template.Node):
             field_elem.tail = elem.tail
             if error_class is not None and field.errors:
                 self._add_class(field_elem, error_class)
-            elem.getparent().replace(elem, field_elem)
+            
+            # Replace element by new element.
+            parent = elem.getparent()
+            index = -1
+            for el in parent:
+                index += 1
+                if el == elem: break
+            parent[index] = field_elem
+
+            # Insert error messages.
+            if messages and field.errors:
+                errors_elem = etree.Element('ul')
+                errors_elem.set('class', 'errors')
+                for error in field.errors:
+                    node = etree.Element('li')
+                    node.text = unicode(error)
+                    errors_elem.append(node)
+                parent.insert(index + 1, errors_elem)
         if strict:
             for field in self.form:
                 if field.name not in fields_used:
@@ -104,8 +122,8 @@ def do_form(parser, token):
     kwargs = {}
     flags = []
     for i in bits:
-        if i == 'strict':
-            flags.append('strict')
+        if i in ('strict', 'messages'):
+            flags.append(i)
         else:
             try:
                 a, b = [x.strip() for x in i.split('=', 1)]
